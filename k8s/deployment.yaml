@@ -1,19 +1,42 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: bookmoa
+  name: bookmoa-backend
+  labels:
+    app: bookmoa-backend
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: bookmoa
-  template:
-    metadata:
-      labels:
-        app: bookmoa
-    spec:
-      containers:
-      - name: bookmoa
-        image: asia-northeast3-docker.pkg.dev/<PROJECT-ID>/bookmoa/bookmoa:latest
-        ports:
-        - containerPort: 3000
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bookmoa-backend
+  template:
+    metadata:
+      labels:
+        app: bookmoa-backend
+    spec:
+      containers:
+        - name: bookmoa-backend
+          # 이 줄은 Jenkins에서 sed로 자동 교체됨
+          image: stella9921/bookmoa-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: "production"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bookmoa-backend-service
+  labels:
+    app: bookmoa-backend
+spec:
+  type: LoadBalancer
+  selector:
+    app: bookmoa-backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000

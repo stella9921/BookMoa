@@ -1,87 +1,80 @@
 pipeline {
-    agent any
+    agent any
 
-    environment {
-        // 환경 변수는 사용자님의 실제 GKE 및 Jenkins 설정 값입니다.
-        PROJECT_ID     = 'warm-utility-455909-s5'
-        CLUSTER_NAME   = 'bookmoa-cluster1'
-        LOCATION       = 'asia-northeast3-c'
-        CREDENTIALS_ID = '11a74dda-01be-43ba-b432-4eb6303b68cc'
-    }
+    environment {
+        // ✅ 네 실제 GCP / Jenkins 설정에 맞게 수정한 값들
+        PROJECT_ID     = 'firm-aria-479509-m0'        // GCP 프로젝트 ID
+        CLUSTER_NAME   = 'kube'                       // GKE 클러스터 이름 (gke-kube-... 노드들)
+        LOCATION       = 'asia-northeast3-a'          // 클러스터가 떠 있는 zone
+        CREDENTIALS_ID = 'gke'                        // Jenkins 크리덴셜 ID (ID 칸에 적은 값)
+        DOCKER_IMAGE   = 'stella9921/bookmoa-backend' // Docker Hub 리포지토리 이름
+    }
 
-    stages {
+    stages {
 
-        stage("Checkout code") {
-            steps {
-                checkout scm
-            }
-        }
+        stage('Checkout code') {
+            steps {
+                checkout scm
+            }
+        }
 
-        stage("Build Docker image") {
-            steps {
-                script {
-                    echo "Building Docker image..."
-                    // 'app' 변수에 빌드 결과 저장
-                    app = docker.build("chaewon121/bookmoa:${env.BUILD_ID}")
-                }
-            }
-        }
+        stage('Build Docker image') {
+            steps {
+                script {
+                    echo 'Building Docker image...'
+                    app = docker.build("${DOCKER_IMAGE}:${env.BUILD_ID}")
+                }
+            }
+        }
 
-        stage("Push Docker image") {
-            steps {
-                script {
-                    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub') {
-                        echo "Pushing Docker image..."
-                        // 'app' 변수 사용
-                        app.push("latest")
-                        app.push("${env.BUILD_ID}")
-                    }
-                }
-            }
-        }
+        stage('Push Docker image') {
+            steps {
+                script {
+                    docker.withRegistry('https://registry.hub.docker.com', 'dockerhub') {
+                        echo 'Pushing Docker image...'
+                        app.push('latest')
+                        app.push("${env.BUILD_ID}")
+                    }
+                }
+            }
+        }
 
-        stage("Deploy to GKE") {
-            when {
-                branch 'main'
-            }
-            steps {
-                echo "Deploying to GKE..."
+        stage('Deploy to GKE') {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo 'Deploying to GKE...'
 
-                // 1. deployment.yaml에 이미지 태그 업데이트 및 디버깅 🚀
-                sh """
-                    # 💡 sed 개선: 'image:' 다음의 모든 내용을 새 이미지:태그로 완벽하게 대체하여 YAML 포맷 손상 방지
-                    # 이 명령은 라인의 들여쓰기를 포함한 image: 다음의 모든 문자를 치환합니다.
-                    sed -i "s|image:.*|image: chaewon121/bookmoa:${env.BUILD_ID}|" deployment.yaml
-                    
-                    echo "--- DEBUG: Check updated image in deployment.yaml ---"
-                    cat deployment.yaml | grep image:
-                    echo "----------------------------------------------------"
-                """
+                // 1) deployment.yaml 안 image 태그를 이번 빌드 이미지로 교체
+                sh """
+                    sed -i 's|image:.*|image: ${DOCKER_IMAGE}:${env.BUILD_ID}|' k8s/deployment.yaml
+                    echo '--- DEBUG: image line in deployment.yaml ---'
+                    grep 'image:' k8s/deployment.yaml
+                """
 
-                // 2. deployment.yaml 적용 (KubernetesEngineBuilder 스텝 1)
-                echo "Applying deployment.yaml..."
-                step([
-                    $class: 'KubernetesEngineBuilder',
-                    projectId: PROJECT_ID,
-                    clusterName: CLUSTER_NAME,
-                    location: LOCATION,
-                    manifestPattern: 'deployment.yaml', 
-                    credentialsId: CREDENTIALS_ID,
-                    verifyDeployments: true
-                ])
-                
-                // 3. service.yaml 적용 (KubernetesEngineBuilder 스텝 2)
-                echo "Applying service.yaml..."
-                step([
-                    $class: 'KubernetesEngineBuilder',
-                    projectId: PROJECT_ID,
-                    clusterName: CLUSTER_NAME,
-                    location: LOCATION,
-                    manifestPattern: 'service.yaml', 
-                    credentialsId: CREDENTIALS_ID,
-                    verifyDeployments: true
-                ])
-            }
-        }
-    }
+                // 2) deployment.yaml 적용
+                step([
+                    $class: 'KubernetesEngineBuilder',
+                    projectId: PROJECT_ID,
+                    clusterName: CLUSTER_NAME,
+                    location: LOCATION,
+                    manifestPattern: 'k8s/deployment.yaml',
+                    credentialsId: CREDENTIALS_ID,
+                    verifyDeployments: true
+                ])
+
+                // 3) service.yaml 적용
+                step([
+                    $class: 'KubernetesEngineBuilder',
+                    projectId: PROJECT_ID,
+                    clusterName: CLUSTER_NAME,
+                    location: LOCATION,
+                    manifestPattern: 'k8s/service.yaml',
+                    credentialsId: CREDENTIALS_ID,
+                    verifyDeployments: true
+                ])
+            }
+        }
+    }
 }
